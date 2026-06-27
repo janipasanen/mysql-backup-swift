@@ -24,9 +24,11 @@ public class BackupManager {
     }
 
     public let config: Config
+    private let executor: ShellExecutor
 
-    public init(config: Config) {
+    public init(config: Config, executor: ShellExecutor = RealShellExecutor()) {
         self.config = config
+        self.executor = executor
     }
 
     public func runBackup() throws -> String {
@@ -39,8 +41,10 @@ public class BackupManager {
         let passwordArg = config.dbPassword != nil ? "-p\(config.dbPassword!)" : "-p"
         let command = "mysqldump -u \(config.dbUser) \(passwordArg) \(config.dbName) > \(filePath)"
         
-        print("Executing: \(command)")
-        try executeShell(command)
+        let status = try executor.execute(command)
+        if status != 0 {
+            throw BackupError.shellCommandFailed("Command failed with status \(status): \(command)")
+        }
         
         return filePath
     }
@@ -75,8 +79,10 @@ public class BackupManager {
         let compressedPath = filePath + ".tar.gz"
         let command = "tar -czf \(compressedPath) -C \(config.backupDir) \(URL(fileURLWithPath: filePath).lastPathComponent)"
         
-        print("Compressing: \(filePath)")
-        try executeShell(command)
+        let status = try executor.execute(command)
+        if status != 0 {
+            throw BackupError.shellCommandFailed("Command failed with status \(status): \(command)")
+        }
         try fileManager.removeItem(atPath: filePath)
     }
 
@@ -84,19 +90,6 @@ public class BackupManager {
         let fileManager = FileManager.default
         if !fileManager.fileExists(atPath: path) {
             try fileManager.createDirectory(atPath: path, withIntermediateDirectories: true)
-        }
-    }
-
-    private func executeShell(_ command: String) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-c", command]
-        
-        try process.run()
-        process.waitUntilExit()
-        
-        if process.terminationStatus != 0 {
-            throw BackupError.shellCommandFailed("Command failed with status \(process.terminationStatus): \(command)")
         }
     }
 }

@@ -18,16 +18,17 @@ public class GoogleDriveManager {
     }
 
     private let config: Config
+    private let client: NetworkClient
 
-    public init(config: Config) {
+    public init(config: Config, client: NetworkClient = RealNetworkClient()) {
         self.config = config
+        self.client = client
     }
 
     public func uploadFile(filePath: String) throws {
         let fileURL = URL(fileURLWithPath: filePath)
         let fileName = fileURL.lastPathComponent
         
-        // 1. Create metadata for the file
         let metadata: [String: Any] = [
             "name": fileName,
             "parents": config.folderId != nil ? [config.folderId!] : []
@@ -35,17 +36,14 @@ public class GoogleDriveManager {
         
         let metadataData = try JSONSerialization.data(withJSONObject: metadata, options: [])
         
-        // 2. Upload the file (Multipart upload for name + content)
         let boundary = "SwiftBoundary\(UUID().uuidString)"
         var bodyData = Data()
         
-        // Metadata part
         bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
         bodyData.append("Content-Type: application/json; charset=UTF-8\r\n\r\n".data(using: .utf8)!)
         bodyData.append(metadataData)
         bodyData.append("\r\n".data(using: .utf8)!)
         
-        // File content part
         bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
         bodyData.append("Content-Type: application/octet-stream\r\n".data(using: .utf8)!)
         bodyData.append("Content-Disposition: form-data; name=\"file\"\r\n\r\n".data(using: .utf8)!)
@@ -65,7 +63,7 @@ public class GoogleDriveManager {
         let semaphore = DispatchSemaphore(value: 0)
         var uploadError: Error?
         
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+        client.upload(request: request) { data, response, error in
             if let error = error {
                 uploadError = error
             } else if let httpResponse = response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
@@ -74,7 +72,6 @@ public class GoogleDriveManager {
             }
             semaphore.signal()
         }
-        task.resume()
         semaphore.wait()
         
         if let error = uploadError {
